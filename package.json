@@ -10,6 +10,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "cli": "^1.0.0",
     "download": "^5.0.2",
     "filesize": "^3.3.0",
     "mkdirp": "^0.5.1",

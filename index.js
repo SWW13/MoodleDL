@@ -1,29 +1,79 @@
 const fs = require('fs');
+const cli = require('cli');
 const prompt = require('prompt');
 const mkdirp = require('mkdirp');
 const download = require('download');
 const filesize = require('filesize');
 const moodle_client = require('moodle-client');
 
-const downloadDir = 'downloads';
-var schema = {
-    properties: {
-        wwwroot: {
-            default: 'https://moodle.htwg-konstanz.de/moodle/',
-            required: true
-        },
-        username: {
-            default: 'siwoerne',
-            required: true
-        },
-        password: {
-            required: true,
-            hidden: true
-        }
-    }
-};
+cli.parse({
+    downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
+    moodleUrl: ['u', 'Url of moodle instance', 'url', null],
+    token: ['t', 'Moodle access token', 'string', false],
+    getToken: [false, 'Acquire moodle access token', 'string', false]
+});
 
-prompt.start();
+console.log(cli.options);
+//cli.exit(0);
+
+const args = cli.options;
+if(!args.moodleUrl || !args.token) {
+    var properties = {};
+
+    if(!args.moodleUrl) {
+        properties.moodleUrl = {
+            required: true
+        };
+    }
+    if(!args.token) {
+        properties.username = {
+            required: true
+        };
+        properties.password = {
+            required: true,
+                hidden: true
+        };
+    }
+
+    prompt.start();
+    prompt.get({properties}, function (err, result) {
+        let options = {
+            wwwroot: args.moodleUrl || result.moodleUrl,
+        };
+
+        if(args.token) {
+            options.token = args.token;
+        } else {
+            options.username = result.username;
+            options.password = result.password;
+        }
+
+        connect(options);
+    });
+} else {
+    connect({
+        wwwroot: args.moodleUrl,
+        token: args.token
+    });
+}
+
+function connect(options) {
+    moodle_client.init(options)
+    .then(function (client) {
+        console.log(client);
+
+        if(args.getToken) {
+            cli.exit(0);
+        }
+
+        //get_userid(client);
+        //list_courses(client);
+    }).catch(function (err) {
+        console.log('Unable to initialize the client: ' + err);
+    });
+}
+
+/*prompt.start();
 prompt.get(schema, function (err, result) {
     moodle_client.init({
         wwwroot: result.wwwroot,
@@ -37,7 +87,7 @@ prompt.get(schema, function (err, result) {
     }).catch(function (err) {
         console.log('Unable to initialize the client: ' + err);
     });
-});
+});*/
 
 function get_userid(client) {
     client.call({
