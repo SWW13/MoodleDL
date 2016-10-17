@@ -1,11 +1,16 @@
-var prompt = require('prompt');
-var moodle_client = require('moodle-client');
-var filesize = require('filesize');
+const fs = require('fs');
+const prompt = require('prompt');
+const mkdirp = require('mkdirp');
+const download = require('download');
+const filesize = require('filesize');
+const moodle_client = require('moodle-client');
 
+const downloadDir = 'downloads';
 var schema = {
     properties: {
         wwwroot: {
-            default: 'https://moodle.htwg-konstanz.de/moodle/'
+            default: 'https://moodle.htwg-konstanz.de/moodle/',
+            required: true
         },
         username: {
             default: 'siwoerne',
@@ -26,6 +31,7 @@ prompt.get(schema, function (err, result) {
         password: result.password
 
     }).then(function (client) {
+        console.log(client);
         //get_userid(client);
         list_courses(client);
     }).catch(function (err) {
@@ -76,7 +82,7 @@ function list_courses(client) {
                             console.log('\t\t' + module.name + '(' + module.modplural + ')');
                             //console.log(module);
 
-                            /*if(module.name === 'Protokollablage') {
+                            /*if(module.name === 'Laborübung 1: WireShark') {
                                 console.log(module);
                             }*/
 
@@ -89,16 +95,23 @@ function list_courses(client) {
                                     filePaths.push(content.filepath);
                                     files[content.filepath] = content;
                                     //console.log('\t\t\t' + content.filename + ' (' + filesize(content.filesize) + ')' + ' => ' + content.fileurl);
+
+                                    //console.log(content);
+
+                                    var downloadUrl = content.fileurl + '&token=' + client.token;
+                                    var path = downloadDir + '/' + course.shortname + '/' + section.name + '/' + module.name + '/' + (content.filepath || '/').substring(1);
+                                    var dst = path + '/' + content.filename;
+                                    download(downloadUrl).then(data => {
+                                        mkdirp.sync(path);
+                                        fs.writeFileSync(dst, data);
+                                    });
                                 });
 
                                 filePaths.sort();
                                 filePaths.map(filePath => {
                                   var content = files[filePath];
-                                  if(!filePath) {
-                                    filePath = '/';
-                                  }
-                                  
-                                  console.log('\t\t\t' + filePath.substring(1) + content.filename + ' (' + filesize(content.filesize) + ')' + ' => ' + content.fileurl);
+
+                                    console.log('\t\t\t' + (filePath || '/').substring(1) + content.filename + ' (' + filesize(content.filesize) + ')' + ' => ' + content.fileurl + '&token=' + client.token);
                                 });
                             }
                         });
