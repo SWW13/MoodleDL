@@ -1,5 +1,6 @@
 const fs = require('fs');
 const cli = require('cli');
+const util = require('util');
 const prompt = require('prompt');
 const mkdirp = require('mkdirp');
 const Promise = require('promise');
@@ -10,15 +11,16 @@ const moodle_client = require('moodle-client');
 const CONFIG_FILE = 'config.json';
 
 cli.parse({
-    downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
+    downloadDir: ['o', 'Download destination path', 'path', 'downloads'],
     moodleUrl: ['u', 'Url of moodle instance', 'url', null],
     token: ['t', 'Moodle access token', 'string', false],
     saveConfig: ['s', 'Save moodle url and access token', 'bool', false]
 });
 const args = cli.options;
+const DOWNLOAD_PATH = args.downloadDir;
 cli.debug(JSON.stringify(args));
 
-const getInput = (moodleUrl, token) => new Promise((resolve, reject) => {
+const getOptions = (moodleUrl, token) => new Promise((resolve, reject) => {
     const properties = {
         wwwroot: {
             message: 'Moodle URL',
@@ -63,7 +65,6 @@ const getInput = (moodleUrl, token) => new Promise((resolve, reject) => {
         }
     });
 });
-
 const loadConfig = () => new Promise((resolve, reject) => {
     fs.exists(CONFIG_FILE, exists => {
         if(exists) {
@@ -91,13 +92,35 @@ const login = () => new Promise((resolve, reject) => {
             args.token = config.token;
         }
 
-        getInput(args.moodleUrl, args.token).then(options => {
+        getOptions(args.moodleUrl, args.token).then(options => {
             moodle_client.init(options)
                 .then(client => resolve(client))
                 .catch(err => reject(err));
         });
     });
 });
+
+const moodleApiCall = (client, apiFunction, args = null, callOptions = {}) => new Promise((resolve, reject) => {
+    if(args) {
+        callOptions.args = args;
+    }
+
+    callOptions.wsfunction = apiFunction;
+    cli.debug(JSON.stringify(callOptions));
+    client.call(callOptions).then(data => {
+        if(data.exception) {
+            cli.debug(JSON.stringify(data));
+            cli.error(data.message);
+            reject(data);
+        } else {
+            resolve(data);
+        }
+    });
+});
+
+const getSiteInfo = client => moodleApiCall(client, 'core_webservice_get_site_info');
+const getCourseList = (client, userId) => moodleApiCall(client, 'core_enrol_get_users_courses', { userid: userId });
+const getCourseContents = (client, courseId) => moodleApiCall(client, 'core_course_get_contents', { courseid: courseId });
 
 login().then(client => {
     cli.debug(JSON.stringify(client));
@@ -113,78 +136,102 @@ login().then(client => {
         });
     }
 
-    // TODO List
-    // TODO Download
-    //list_courses(client);
-}).catch(cli.error);
-
-function list_courses(client) {
-    client.call({
-        wsfunction: 'core_enrol_get_users_courses',
-        args: {
-            userid: 10085
-        }
-    }).then(function (courses) {
-        //console.log(courses);
-
-        courses.map(course => {
-            //console.log(course);
-            console.log(course.shortname + ' - ' + course.fullname);
-
-            client.call({
-                wsfunction: 'core_course_get_contents',
-                args: {
-                    courseid: course.id
-                }
-            }).then(function (sections) {
-                //console.log(sections);
-
+    const siteInfo = client => new Promise((resolve, reject) => {
+        getSiteInfo(client).then(siteInfo => {
+            cli.debug(JSON.stringify(siteInfo));
+            cli.info(siteInfo.fullname + ' logged in at ' + siteInfo.sitename);
+            resolve({client, userId: siteInfo.userid});
+        });
+    });
+    const courseList = data => new Promise((resolve, reject) => {
+        let {client, userId} = data;
+        getCourseList(client, userId).then(courses => {
+            cli.debug(JSON.stringify(courses));
+            resolve({client, courses});
+        });
+    });
+    const courseContents = data => new Promise((resolve, reject) => {
+        let {client, courses} = data;
+        Promise.all(courses.map(course => getCourseContents(client, course.id))).then(coursesSections => {
+            let downloads = [];
+            coursesSections.map((sections, courseIndex) => {
+                let course = courses[courseIndex];
                 sections.map(section => {
-                    console.log('\t' + section.name);
+                    cli.debug(course.shortname + ' - ' + course.fullname);
+                    cli.debug('  ' + section.name);
 
                     if (section.modules) {
-                        //console.log(section.modules);
-
                         section.modules.map(module => {
-                            console.log('\t\t' + module.name + '(' + module.modplural + ')');
-                            //console.log(module);
-
-                            /*if(module.name === 'Laborübung 1: WireShark') {
-                                console.log(module);
-                            }*/
+                            cli.debug('    ' + module.name + ' (' + module.modplural + ')');
 
                             if (module.contents) {
-                                //console.log(module.contents);
-
-                                var files = {};
-                                var filePaths = [];
+                                let fileNames = [];
                                 module.contents.map(content => {
-                                    filePaths.push(content.filepath);
-                                    files[content.filepath] = content;
-                                    //console.log('\t\t\t' + content.filename + ' (' + filesize(content.filesize) + ')' + ' => ' + content.fileurl);
+                                    let downloadUrl = content.fileurl + '&token=' + client.token;
+                                    let filePath = (content.filePath || '/').substring(1);
+                                    let path = course.shortname + '/' + section.name + '/' + module.name + '/' + filePath;
+                                    let outputFile = DOWNLOAD_PATH + '/' + path + '/' + content.filename;
 
-                                    //console.log(content);
-
-                                    var downloadUrl = content.fileurl + '&token=' + client.token;
-                                    var path = args.downloadDir + '/' + course.shortname + '/' + section.name + '/' + module.name + '/' + (content.filepath || '/').substring(1);
-                                    var dst = path + '/' + content.filename;
-                                    /*download(downloadUrl).then(data => {
-                                        mkdirp.sync(path);
-                                        fs.writeFileSync(dst, data);
-                                    });*/
+                                    fileNames.push('      ' + (filePath ? filePath + '/' : '') +  content.filename + ' (' + filesize(content.filesize) + ')');
+                                    downloads.push({
+                                        downloadUrl: downloadUrl,
+                                        outputFile: outputFile,
+                                        file: content
+                                    });
                                 });
 
-                                filePaths.sort();
-                                filePaths.map(filePath => {
-                                  var content = files[filePath];
-
-                                    console.log('\t\t\t' + (filePath || '/').substring(1) + content.filename + ' (' + filesize(content.filesize) + ')' + ' => ' + content.fileurl + '&token=' + client.token);
-                                });
+                                fileNames.sort();
+                                fileNames.map(cli.info);
                             }
                         });
                     }
                 });
             });
+
+            console.log(downloads);
+            resolve(downloads);
         });
     });
-}
+    const downloadFiles = downloads => new Promise((resolve, reject) => {
+        cli.info('Checking local files...');
+
+        let fileDownloads = [];
+        let downloadSize = 0;
+        let downloadSizeTotal = 0;
+
+        downloads.map((download, index) => {
+            cli.progress(index / downloads.length);
+
+            let file = download.outputFile;
+            if(fs.existsSync(file)){
+                let stats = fs.statSync(file);
+                let mtime = new Date(util.inspect(stats.mtime));
+                let mtimeTimestep = Math.round(mtime.getTime()/1000);
+
+                if(mtimeTimestep >= download.file.timemodified) {
+                    cli.debug('skipping ' + download.outputFile);
+                    return;
+                }
+
+                console.log(mtime);
+                console.log(download.file);
+
+                console.log(Math.round(mtime.getTime()/1000));
+                console.log(download.file.timemodified);
+            }
+
+            fileDownloads.push(download);
+            downloadSizeTotal += download.file.filesize;
+        });
+        // TODO download
+        /*download(downloadUrl).then(data => {
+            mkdirp.sync(path);
+            fs.writeFileSync(dst, data);
+        });*/
+    });
+
+    siteInfo(client).catch(cli.error)
+        .then(courseList).catch(cli.error)
+        .then(courseContents).catch(cli.error)
+        .then(downloadFiles).catch(cli.error);
+}).catch(cli.error);
