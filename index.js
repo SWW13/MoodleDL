@@ -10,11 +10,13 @@ const moodle_client = require('moodle-client');
 
 const CONFIG_FILE = 'config.json';
 
+cli.enable('status');
 cli.parse({
-    downloadDir: ['o', 'Download destination path', 'path', 'downloads'],
+    downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
     moodleUrl: ['u', 'Url of moodle instance', 'url', null],
     token: ['t', 'Moodle access token', 'string', false],
-    saveConfig: ['s', 'Save moodle url and access token', 'bool', false]
+    saveConfig: ['s', 'Save moodle url and access token', 'bool', false],
+    forceDownload: ['f', 'Force file download', 'bool', false]
 });
 const args = cli.options;
 const DOWNLOAD_PATH = args.downloadDir;
@@ -139,7 +141,7 @@ login().then(client => {
     const siteInfo = client => new Promise((resolve, reject) => {
         getSiteInfo(client).then(siteInfo => {
             cli.debug(JSON.stringify(siteInfo));
-            cli.info(siteInfo.fullname + ' logged in at ' + siteInfo.sitename);
+            cli.ok(siteInfo.fullname + ' logged in at ' + siteInfo.sitename + '.');
             resolve({client, userId: siteInfo.userid});
         });
     });
@@ -169,65 +171,78 @@ login().then(client => {
                                 module.contents.map(content => {
                                     let downloadUrl = content.fileurl + '&token=' + client.token;
                                     let filePath = (content.filePath || '/').substring(1);
-                                    let path = course.shortname + '/' + section.name + '/' + module.name + '/' + filePath;
-                                    let outputFile = DOWNLOAD_PATH + '/' + path + '/' + content.filename;
+                                    let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + module.name + '/' + filePath;
+                                    let outputFile = path + '/' + content.filename;
 
                                     fileNames.push('      ' + (filePath ? filePath + '/' : '') +  content.filename + ' (' + filesize(content.filesize) + ')');
                                     downloads.push({
-                                        downloadUrl: downloadUrl,
+                                        url: downloadUrl,
+                                        outputPath: path,
                                         outputFile: outputFile,
                                         file: content
                                     });
                                 });
 
                                 fileNames.sort();
-                                fileNames.map(cli.info);
+                                fileNames.map(cli.debug);
                             }
                         });
                     }
                 });
             });
 
-            console.log(downloads);
+            cli.ok('Found ' + downloads.length + ' files in moodle.');
             resolve(downloads);
         });
     });
     const downloadFiles = downloads => new Promise((resolve, reject) => {
-        cli.info('Checking local files...');
-
         let fileDownloads = [];
+        let unkownFilesizeDownloads = 0;
         let downloadSize = 0;
         let downloadSizeTotal = 0;
 
-        downloads.map((download, index) => {
-            cli.progress(index / downloads.length);
-
-            let file = download.outputFile;
-            if(fs.existsSync(file)){
-                let stats = fs.statSync(file);
+        downloads.map(dl => {
+            if(dl.file.filesize === 0) {
+                unkownFilesizeDownloads++;
+            }
+            if(fs.existsSync(dl.outputFile) && !args.forceDownload){
+                let stats = fs.statSync(dl.outputFile);
                 let mtime = new Date(util.inspect(stats.mtime));
                 let mtimeTimestep = Math.round(mtime.getTime()/1000);
+                let skipp = mtimeTimestep >= dl.file.timemodified && stats.size === dl.file.filesize;
 
-                if(mtimeTimestep >= download.file.timemodified) {
-                    cli.debug('skipping ' + download.outputFile);
+                cli.debug(dl.outputFile +
+                    '\n\ttimestamp:\tlocale = ' + mtimeTimestep + '\tmoodle = ' + dl.file.timemodified +
+                    '\n\tsize:\t\tlocale = ' + filesize(stats.size) + '\tmoodle = ' + filesize(dl.file.filesize) +
+                    (skipp ? '\n\t=> skipping' : ''));
+
+                if(skipp) {
                     return;
                 }
-
-                console.log(mtime);
-                console.log(download.file);
-
-                console.log(Math.round(mtime.getTime()/1000));
-                console.log(download.file.timemodified);
             }
 
-            fileDownloads.push(download);
-            downloadSizeTotal += download.file.filesize;
+            fileDownloads.push(dl);
+            downloadSizeTotal += dl.file.filesize;
         });
-        // TODO download
-        /*download(downloadUrl).then(data => {
-            mkdirp.sync(path);
-            fs.writeFileSync(dst, data);
-        });*/
+
+        if(unkownFilesizeDownloads > 0) {
+            cli.info('Could not demeter file size of ' + unkownFilesizeDownloads + ' file(s). Force redownload.')
+        }
+        if(fileDownloads.length > 0) {
+            cli.ok('Found ' + fileDownloads.length + ' new or changed files.');
+            cli.progress(0);
+            fileDownloads.map(dl => {
+                download(dl.url).then(data => {
+                    mkdirp.sync(dl.outputPath);
+                    fs.writeFileSync(dl.outputFile, data);
+
+                    downloadSize += dl.file.filesize;
+                    cli.progress(downloadSize / downloadSizeTotal);
+                });
+            });
+        } else {
+            cli.info('All files are up to date.');
+        }
     });
 
     siteInfo(client).catch(cli.error)
