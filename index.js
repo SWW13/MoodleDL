@@ -65,22 +65,25 @@ const getInput = (moodleUrl, token) => new Promise((resolve, reject) => {
 });
 
 const loadConfig = () => new Promise((resolve, reject) => {
-    if(fs.existsSync('/etc/file')){
-        fs.readFile(CONFIG_FILE, 'utf8', function (err, data) {
-            if (err) {
-                cli.error(err);
-                resolve({});
-            }
-            else {
-                resolve(JSON.parse(data));
-            }
-        });
-    } else {
-        resolve({});
-    }
+    fs.exists(CONFIG_FILE, exists => {
+        if(exists) {
+            fs.readFile(CONFIG_FILE, 'utf8', function (err, data) {
+                if (err) {
+                    cli.error(err);
+                    resolve({});
+                }
+                else {
+                    resolve(JSON.parse(data));
+                }
+            });
+        } else {
+            resolve({});
+        }
+    });
 });
 const login = () => new Promise((resolve, reject) => {
     loadConfig().then(config => {
+        cli.debug(JSON.stringify(config));
         if(!args.moodleUrl) {
             args.moodleUrl = config.wwwroot;
         }
@@ -99,12 +102,15 @@ const login = () => new Promise((resolve, reject) => {
 login().then(client => {
     cli.debug(JSON.stringify(client));
 
-    // TODO saveConfig
     if(args.saveConfig) {
         fs.writeFile(CONFIG_FILE, JSON.stringify({
             wwwroot: client.wwwroot,
             token: client.token
-        }), cli.error);
+        }), err => {
+            if(err) {
+                cli.error(err);
+            }
+        });
     }
 
     // TODO List
