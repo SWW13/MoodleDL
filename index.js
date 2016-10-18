@@ -123,6 +123,12 @@ const moodleApiCall = (client, apiFunction, args = null, callOptions = {}) => ne
 const getSiteInfo = client => moodleApiCall(client, 'core_webservice_get_site_info');
 const getCourseList = (client, userId) => moodleApiCall(client, 'core_enrol_get_users_courses', { userid: userId });
 const getCourseContents = (client, courseId) => moodleApiCall(client, 'core_course_get_contents', { courseid: courseId });
+const getCourseAssignments = (client, courseIds) => {
+    let args = {};
+    courseIds.map((courseId, i) => { args['courseids[' + i + ']'] = courseId });
+
+    return moodleApiCall(client, 'mod_assign_get_assignments', args);
+}
 
 login().then(client => {
     cli.debug(JSON.stringify(client));
@@ -164,7 +170,11 @@ login().then(client => {
 
                     if (section.modules) {
                         section.modules.map(module => {
-                            cli.debug('    ' + module.name + ' (' + module.modplural + ')');
+                            cli.debug('    ' + module.name + ' (' + module.modname + ')');
+
+                            // TODO: if(module.modname === 'forum')
+                            // mod_forum_get_forum_discussions -> posts
+                            // mod_forum_get_forum_discussion_posts -> post.attachment
 
                             if (module.contents) {
                                 let fileNames = [];
@@ -191,7 +201,43 @@ login().then(client => {
                 });
             });
 
-            cli.ok('Found ' + downloads.length + ' files in moodle.');
+            cli.ok('Found ' + downloads.length + ' files in courses.');
+            resolve({client, courses, downloads});
+        });
+    });
+    const courseAssignments = data => new Promise((resolve, reject) => {
+        let {client, courses, downloads} = data;
+        let downloadsCountOld = downloads.length;
+        getCourseAssignments(client, courses.map(course => course.id)).then(data => {
+            let courses = data.courses;
+            courses.map(course => {
+                course.assignments.map(assignment => {
+                    cli.debug(course.shortname + ' - ' + course.fullname);
+                    cli.debug('  ' + assignment.name);
+
+                    if (assignment.introattachments) {
+                        let fileNames = [];
+                        assignment.introattachments.map(content => {
+                            let downloadUrl = content.fileurl + '?token=' + client.token;
+                            let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + assignment.name;
+                            let outputFile = path + '/' + content.filename;
+
+                            fileNames.push('      ' + content.filename);
+                            downloads.push({
+                                url: downloadUrl,
+                                outputPath: path,
+                                outputFile: outputFile,
+                                file: content
+                            });
+                        });
+
+                        fileNames.sort();
+                        fileNames.map(cli.debug);
+                    }
+                });
+            });
+
+            cli.ok('Found ' + (downloads.length - downloadsCountOld) + ' files in course assignments.');
             resolve(downloads);
         });
     });
@@ -202,9 +248,6 @@ login().then(client => {
         let downloadSizeTotal = 0;
 
         downloads.map(dl => {
-            if(dl.file.filesize === 0) {
-                unkownFilesizeDownloads++;
-            }
             if(fs.existsSync(dl.outputFile) && !args.forceDownload){
                 let stats = fs.statSync(dl.outputFile);
                 let mtime = new Date(util.inspect(stats.mtime));
@@ -212,26 +255,32 @@ login().then(client => {
                 let skipp = mtimeTimestep >= dl.file.timemodified && stats.size === dl.file.filesize;
 
                 cli.debug(dl.outputFile +
-                    '\n\ttimestamp:\tlocale = ' + mtimeTimestep + '\tmoodle = ' + dl.file.timemodified +
-                    '\n\tsize:\t\tlocale = ' + filesize(stats.size) + '\tmoodle = ' + filesize(dl.file.filesize) +
-                    (skipp ? '\n\t=> skipping' : ''));
+                    '\n\ttimestamp:\tlocale = ' + mtimeTimestep + '\tmoodle = ' + (dl.file.timemodified ? dl.file.timemodified : 'unknown') +
+                    '\n\tsize:\t\tlocale = ' + filesize(stats.size) + '\tmoodle = ' + (dl.file.filesize ? filesize(dl.file.filesize) : 'unknown') +
+                    (skipp ? '\n\t=> skipping' : '\n\t=> redownload'));
 
                 if(skipp) {
                     return;
                 }
             }
 
+            if(dl.file.filesize) {
+                downloadSizeTotal += dl.file.filesize;
+            } else {
+                unkownFilesizeDownloads++;
+            }
+
             fileDownloads.push(dl);
-            downloadSizeTotal += dl.file.filesize;
         });
 
         if(unkownFilesizeDownloads > 0) {
-            cli.info('Could not demeter file size of ' + unkownFilesizeDownloads + ' file(s). Force redownload.')
+            cli.info('Could not determine file size of ' + unkownFilesizeDownloads + ' file(s). Force redownload.')
         }
         if(fileDownloads.length > 0) {
             cli.ok('Found ' + fileDownloads.length + ' new or changed files.');
             cli.progress(0);
             fileDownloads.map(dl => {
+                // TODO: limit parallel downloads
                 download(dl.url).then(data => {
                     mkdirp.sync(dl.outputPath);
                     fs.writeFileSync(dl.outputFile, data);
@@ -248,5 +297,6 @@ login().then(client => {
     siteInfo(client).catch(cli.error)
         .then(courseList).catch(cli.error)
         .then(courseContents).catch(cli.error)
+        .then(courseAssignments).catch(cli.error)
         .then(downloadFiles).catch(cli.error);
 }).catch(cli.error);
