@@ -15,6 +15,7 @@
     "filesize": "^3.3.0",
     "mkdirp": "^0.5.1",
     "moodle-client": "^0.4.0",
+    "promise": "^7.1.1",
     "prompt": "^1.0.0"
   }
 }

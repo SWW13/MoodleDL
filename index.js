@@ -2,6 +2,7 @@ const fs = require('fs');
 const cli = require('cli');
 const prompt = require('prompt');
 const mkdirp = require('mkdirp');
+const Promise = require('promise');
 const download = require('download');
 const filesize = require('filesize');
 const moodle_client = require('moodle-client');
@@ -10,97 +11,74 @@ cli.parse({
     downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
     moodleUrl: ['u', 'Url of moodle instance', 'url', null],
     token: ['t', 'Moodle access token', 'string', false],
-    getToken: [false, 'Acquire moodle access token', 'string', false]
+    saveConfig: ['s', 'Save moodle url and access token', 'string', false]
 });
-
-console.log(cli.options);
-//cli.exit(0);
-
 const args = cli.options;
-if(!args.moodleUrl || !args.token) {
-    var properties = {};
+cli.debug(JSON.stringify(args));
 
-    if(!args.moodleUrl) {
-        properties.moodleUrl = {
+const getInput = (moodleUrl, token) => new Promise((resolve, reject) => {
+    const properties = {
+        wwwroot: {
+            message: 'Moodle URL',
             required: true
-        };
-    }
-    if(!args.token) {
-        properties.username = {
+        },
+        username: {
+            message: 'Moodle Username',
             required: true
-        };
-        properties.password = {
+        },
+        password: {
+            message: 'Moodle Password',
             required: true,
-                hidden: true
-        };
+            hidden: true
+        }
+    };
+
+    if(moodleUrl) {
+        delete properties.wwwroot;
+    }
+    if(token) {
+        delete properties.username;
+        delete properties.password;
     }
 
     prompt.start();
     prompt.get({properties}, function (err, result) {
-        let options = {
-            wwwroot: args.moodleUrl || result.moodleUrl,
-        };
-
-        if(args.token) {
-            options.token = args.token;
+        if (err) {
+            reject(err);
         } else {
-            options.username = result.username;
-            options.password = result.password;
+            if(token) {
+                resolve({
+                    wwwroot: moodleUrl || result.wwwroot,
+                    token: token || result.token
+                });
+            } else {
+                resolve({
+                    wwwroot: moodleUrl || result.wwwroot,
+                    username: result.username,
+                    password: result.password
+                });
+            }
         }
-
-        connect(options);
     });
-} else {
-    connect({
-        wwwroot: args.moodleUrl,
-        token: args.token
+});
+
+const login = () => new Promise((resolve, reject) => {
+    getInput(args.moodleUrl, args.token).then(options => {
+        moodle_client.init(options)
+            .then(client => resolve(client))
+            .catch(err => reject(err));
     });
-}
+});
 
-function connect(options) {
-    moodle_client.init(options)
-    .then(function (client) {
-        console.log(client);
+login().then(client => {
+    cli.debug(JSON.stringify(client));
 
-        if(args.getToken) {
-            cli.exit(0);
-        }
+    // TODO saveConfig
+    // TODO List
+    // TODO Download
+    //list_courses(client);
+}).catch(cli.fatal);
 
-        //get_userid(client);
-        //list_courses(client);
-    }).catch(function (err) {
-        console.log('Unable to initialize the client: ' + err);
-    });
-}
-
-/*prompt.start();
-prompt.get(schema, function (err, result) {
-    moodle_client.init({
-        wwwroot: result.wwwroot,
-        username: result.username,
-        password: result.password
-
-    }).then(function (client) {
-        console.log(client);
-        //get_userid(client);
-        list_courses(client);
-    }).catch(function (err) {
-        console.log('Unable to initialize the client: ' + err);
-    });
-});*/
-
-function get_userid(client) {
-    client.call({
-        //wsfunction: 'core_user_view_user_profile',
-        wsfunction: 'core_user_get_user_preferences',
-        args: {
-            name: 'id',
-            userid: 0
-        }
-    }).then(function (data) {
-        console.log(data);
-    });
-}
 function list_courses(client) {
     client.call({
         wsfunction: 'core_enrol_get_users_courses',
@@ -149,12 +127,12 @@ function list_courses(client) {
                                     //console.log(content);
 
                                     var downloadUrl = content.fileurl + '&token=' + client.token;
-                                    var path = downloadDir + '/' + course.shortname + '/' + section.name + '/' + module.name + '/' + (content.filepath || '/').substring(1);
+                                    var path = args.downloadDir + '/' + course.shortname + '/' + section.name + '/' + module.name + '/' + (content.filepath || '/').substring(1);
                                     var dst = path + '/' + content.filename;
-                                    download(downloadUrl).then(data => {
+                                    /*download(downloadUrl).then(data => {
                                         mkdirp.sync(path);
                                         fs.writeFileSync(dst, data);
-                                    });
+                                    });*/
                                 });
 
                                 filePaths.sort();
