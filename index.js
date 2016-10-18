@@ -7,11 +7,13 @@ const download = require('download');
 const filesize = require('filesize');
 const moodle_client = require('moodle-client');
 
+const CONFIG_FILE = 'config.json';
+
 cli.parse({
     downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
     moodleUrl: ['u', 'Url of moodle instance', 'url', null],
     token: ['t', 'Moodle access token', 'string', false],
-    saveConfig: ['s', 'Save moodle url and access token', 'string', false]
+    saveConfig: ['s', 'Save moodle url and access token', 'bool', false]
 });
 const args = cli.options;
 cli.debug(JSON.stringify(args));
@@ -62,11 +64,35 @@ const getInput = (moodleUrl, token) => new Promise((resolve, reject) => {
     });
 });
 
+const loadConfig = () => new Promise((resolve, reject) => {
+    if(fs.existsSync('/etc/file')){
+        fs.readFile(CONFIG_FILE, 'utf8', function (err, data) {
+            if (err) {
+                cli.error(err);
+                resolve({});
+            }
+            else {
+                resolve(JSON.parse(data));
+            }
+        });
+    } else {
+        resolve({});
+    }
+});
 const login = () => new Promise((resolve, reject) => {
-    getInput(args.moodleUrl, args.token).then(options => {
-        moodle_client.init(options)
-            .then(client => resolve(client))
-            .catch(err => reject(err));
+    loadConfig().then(config => {
+        if(!args.moodleUrl) {
+            args.moodleUrl = config.wwwroot;
+        }
+        if(!args.token) {
+            args.token = config.token;
+        }
+
+        getInput(args.moodleUrl, args.token).then(options => {
+            moodle_client.init(options)
+                .then(client => resolve(client))
+                .catch(err => reject(err));
+        });
     });
 });
 
@@ -74,10 +100,17 @@ login().then(client => {
     cli.debug(JSON.stringify(client));
 
     // TODO saveConfig
+    if(args.saveConfig) {
+        fs.writeFile(CONFIG_FILE, JSON.stringify({
+            wwwroot: client.wwwroot,
+            token: client.token
+        }), cli.error);
+    }
+
     // TODO List
     // TODO Download
     //list_courses(client);
-}).catch(cli.fatal);
+}).catch(cli.error);
 
 function list_courses(client) {
     client.call({
