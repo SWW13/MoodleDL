@@ -7,8 +7,10 @@ const Promise = require('promise');
 const download = require('download');
 const filesize = require('filesize');
 const moodle_client = require('moodle-client');
+const promiseConcurrency = require('promise-concurrency');
 
 const CONFIG_FILE = 'config.json';
+const CONCURRENT_DOWNLOAD_LIMIT = 3;
 
 cli.enable('status');
 cli.parse({
@@ -172,7 +174,7 @@ const courseContents = data => new Promise((resolve, reject) => {
                             module.contents.map(content => {
                                 let downloadUrl = content.fileurl + '&token=' + client.token;
                                 let filePath = (content.filePath || '/').substring(1);
-                                let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + module.name + '/' + filePath;
+                                let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + (module.modname !== 'resource' ? module.name + '/' : '') + filePath;
                                 let outputFile = path + '/' + content.filename;
 
                                 fileNames.push('      ' + (filePath ? filePath + '/' : '') +  content.filename + ' (' + filesize(content.filesize) + ')');
@@ -336,16 +338,20 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
     if(fileDownloads.length > 0) {
         cli.ok('Found ' + fileDownloads.length + ' new or changed files.');
         cli.progress(0);
-        fileDownloads.map(dl => {
-            // TODO: limit parallel downloads
-            download(dl.url).then(data => {
-                mkdirp.sync(dl.outputPath);
-                fs.writeFileSync(dl.outputFile, data);
 
-                downloadSize += dl.file.filesize;
-                cli.progress(downloadSize / downloadSizeTotal);
+        const donwloadPromises = fileDownloads.map(dl => {
+            return () => new Promise((resolve, reject) => {
+                download(dl.url).then(data => {
+                    mkdirp.sync(dl.outputPath);
+                    fs.writeFileSync(dl.outputFile, data);
+
+                    downloadSize += dl.file.filesize;
+                    cli.progress(downloadSize / downloadSizeTotal);
+                    resolve();
+                });
             });
         });
+        promiseConcurrency(donwloadPromises, CONCURRENT_DOWNLOAD_LIMIT);
     } else {
         cli.info('All files are up to date.');
     }
