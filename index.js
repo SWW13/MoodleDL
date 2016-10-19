@@ -173,11 +173,11 @@ const courseContents = data => new Promise((resolve, reject) => {
                             let fileNames = [];
                             module.contents.map(content => {
                                 let downloadUrl = content.fileurl + '&token=' + client.token;
-                                let filePath = (content.filePath || '/').substring(1);
-                                let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + (module.modname !== 'resource' ? module.name + '/' : '') + filePath;
-                                let outputFile = path + '/' + content.filename;
+                                let filePath = (content.filepath || '//').substring(1);
+                                let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + (module.modname !== 'resource' ? (module.name + '/') : '') + filePath;
+                                let outputFile = path + content.filename;
 
-                                fileNames.push('      ' + (filePath ? filePath + '/' : '') +  content.filename + ' (' + filesize(content.filesize) + ')');
+                                fileNames.push('      ' + (filePath ? filePath : '') +  content.filename + ' (' + filesize(content.filesize) + ')');
                                 downloads.push({
                                     url: downloadUrl,
                                     outputPath: path,
