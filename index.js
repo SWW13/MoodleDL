@@ -173,9 +173,13 @@ const courseContents = data => new Promise((resolve, reject) => {
                         if (module.contents) {
                             let fileNames = [];
                             module.contents.map(content => {
+                                if(module.modname === 'url') {
+                                    content.filename += '.url';
+                                }
+
                                 let downloadUrl = content.fileurl + '&token=' + client.token;
-                                let filePath = (content.filepath || '//').substring(1);
-                                let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + (module.modname !== 'resource' ? (module.name + '/') : '') + filePath;
+                                let filePath = (content.filepath || '/').substring(1);
+                                let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + (['resource', 'url'].indexOf(module.modname) === -1 ? (module.name + '/') : '') + filePath;
                                 let outputFile = path + content.filename;
 
                                 fileNames.push('      ' + (filePath ? filePath : '') +  content.filename + ' (' + filesize(content.filesize) + ')');
@@ -183,7 +187,8 @@ const courseContents = data => new Promise((resolve, reject) => {
                                     url: downloadUrl,
                                     outputPath: path,
                                     outputFile: outputFile,
-                                    file: content
+                                    file: content,
+                                    type: module.modname
                                 });
                             });
 
@@ -303,6 +308,7 @@ const courseAssignments = data => new Promise((resolve, reject) => {
 });
 const downloadFiles = downloads => new Promise((resolve, reject) => {
     let fileDownloads = [];
+    let urlDownloads = 0;
     let unkownFilesizeDownloads = 0;
     let downloadSize = 0;
     let downloadSizeTotal = 0;
@@ -327,7 +333,14 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
         if(dl.file.filesize) {
             downloadSizeTotal += dl.file.filesize;
         } else {
-            unkownFilesizeDownloads++;
+            switch (dl.type) {
+                case 'url':
+                    urlDownloads++;
+                    break;
+                default:
+                    unkownFilesizeDownloads++;
+                    break;
+            }
         }
 
         fileDownloads.push(dl);
@@ -336,20 +349,34 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
     if(unkownFilesizeDownloads > 0) {
         cli.info('Could not determine file size of ' + unkownFilesizeDownloads + ' file(s). Force redownload.')
     }
+    if(urlDownloads > 0) {
+        cli.info('Downloads contain ' + urlDownloads + ' url(s). Force recreate.')
+    }
+
     if(fileDownloads.length > 0) {
         cli.ok('Found ' + fileDownloads.length + ' new or changed files.');
         cli.progress(0);
 
         const donwloadPromises = fileDownloads.map(dl => {
             return () => new Promise((resolve, reject) => {
-                download(dl.url).then(data => {
+                const writeFile = data => {
                     mkdirp.sync(dl.outputPath);
                     fs.writeFileSync(dl.outputFile, data);
 
                     downloadSize += dl.file.filesize;
+                    cli.ok(dl.outputFile);
                     cli.progress(downloadSize / downloadSizeTotal);
                     resolve();
-                });
+                };
+
+                switch (dl.type) {
+                    case 'url':
+                        writeFile(`[InternetShortcut]\nURL=${dl.url}\n`);
+                        break;
+                    default:
+                        download(dl.url).then(writeFile);
+                        break;
+                }
             });
         });
         promiseConcurrency(donwloadPromises, CONCURRENT_DOWNLOAD_LIMIT);
