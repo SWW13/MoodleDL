@@ -132,6 +132,7 @@ const moodleIdsToArgs = (key, ids = [], args = {}) => {
     ids.map((id, i) => { args[key + '[' + i + ']'] = id });
     return args;
 };
+
 const moodleSiteInfo = client => moodleApiCall(client, 'core_webservice_get_site_info');
 const moodleCourseList = (client, userId) => moodleApiCall(client, 'core_enrol_get_users_courses', { userid: userId });
 const moodleCourseContents = (client, courseId) => moodleApiCall(client, 'core_course_get_contents', { courseid: courseId });
