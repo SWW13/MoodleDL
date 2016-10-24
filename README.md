@@ -1,5 +1,15 @@
 # MoodleDL
 
+## Requirements
+
+* NodeJS v6
+* npm
+
+## Install
+```
+npm install
+```
+
 ## Usage
 ```
 Usage:

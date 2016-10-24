@@ -247,7 +247,7 @@ const forumDiscussionPosts = data => new Promise((resolve, reject) => {
                 if (post.attachments) {
                     let fileNames = [];
                     post.attachments.map(attachment => {
-                        let downloadUrl = attachment.fileurl + '&token=' + client.token;
+                        let downloadUrl = attachment.fileurl + '?token=' + client.token;
                         let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + forum.name + '/' + discussion.name;
                         let outputFile = path + '/' + attachment.filename;
 
@@ -363,12 +363,23 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
                     mkdirp.sync(dl.outputPath);
                     fs.writeFileSync(dl.outputFile, data);
 
-                    downloadSize += dl.file.filesize;
-                    cli.ok(dl.outputFile);
-                    cli.progress(downloadSize / downloadSizeTotal);
+                    if(dl.file.filesize) {
+                        if(data.length == dl.file.filesize) {
+                            cli.ok(dl.outputFile);
+
+                            downloadSize += dl.file.filesize;
+                            cli.progress(downloadSize / downloadSizeTotal);
+                        } else {
+                            cli.error(`{dl.outputFile}: size differ\n\t local: ${data.length}\t remote: ${dl.file.filesize}`);
+                        }
+                    } else {
+                        cli.ok(dl.outputFile);
+                    }
+
                     resolve();
                 };
 
+                cli.debug(dl.url);
                 switch (dl.type) {
                     case 'url':
                         writeFile(`[InternetShortcut]\nURL=${dl.url}\n`);
