@@ -1,11 +1,13 @@
 const fs = require('fs');
 const cli = require('cli');
+const path = require('path');
 const util = require('util');
 const prompt = require('prompt');
 const mkdirp = require('mkdirp');
 const Promise = require('promise');
 const download = require('download');
 const bytes = require('bytes');
+const sanitize = require("sanitize-filename");
 const moodle_client = require('moodle-client');
 const promiseConcurrency = require('promise-concurrency');
 
@@ -24,6 +26,18 @@ cli.parse({
 const args = cli.options;
 const DOWNLOAD_PATH = args.downloadDir;
 cli.debug(JSON.stringify(args));
+
+const joinPath = (base, dirs) => {
+    let fullPath = base;
+
+    for (let dir of dirs) {
+        if(dir) {
+            fullPath = path.join(fullPath, sanitize(dir));
+        }
+    }
+
+    return fullPath;
+};
 
 const getOptions = (moodleUrl, token) => new Promise((resolve, reject) => {
     const properties = {
@@ -180,13 +194,13 @@ const courseContents = data => new Promise((resolve, reject) => {
 
                                 let downloadUrl = content.fileurl + '&token=' + client.token;
                                 let filePath = (content.filepath || '/').substring(1);
-                                let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + (['resource', 'url'].indexOf(module.modname) === -1 ? (module.name + '/') : '') + filePath;
-                                let outputFile = path + content.filename;
+                                let outputPath = joinPath(DOWNLOAD_PATH, [course.shortname, section.name, (['resource', 'url'].indexOf(module.modname) === -1 ? (sanitize(module.name) + '/') : undefined), filePath]);
+                                let outputFile = joinPath(outputPath, [content.filename]);
 
                                 fileNames.push('      ' + (filePath ? filePath : '') +  content.filename + ' (' + bytes(content.filesize) + ')');
                                 downloads.push({
                                     url: downloadUrl,
-                                    outputPath: path,
+                                    outputPath: outputPath,
                                     outputFile: outputFile,
                                     file: content,
                                     type: module.modname
@@ -249,13 +263,13 @@ const forumDiscussionPosts = data => new Promise((resolve, reject) => {
                     let fileNames = [];
                     post.attachments.map(attachment => {
                         let downloadUrl = attachment.fileurl + '?token=' + client.token;
-                        let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + forum.name + '/' + discussion.name;
-                        let outputFile = path + '/' + attachment.filename;
+                        let outputPath = joinPath(DOWNLOAD_PATH, [course.shortname, forum.name, discussion.name]);
+                        let outputFile = joinPath(outputPath, [attachment.filename]);
 
                         fileNames.push('      ' + attachment.filename);
                         downloads.push({
                             url: downloadUrl,
-                            outputPath: path,
+                            outputPath: outputPath,
                             outputFile: outputFile,
                             file: attachment
                         });
@@ -285,13 +299,13 @@ const courseAssignments = data => new Promise((resolve, reject) => {
                     let fileNames = [];
                     assignment.introattachments.map(content => {
                         let downloadUrl = content.fileurl + '?token=' + client.token;
-                        let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + assignment.name;
-                        let outputFile = path + '/' + content.filename;
+                        let outputPath = joinPath(DOWNLOAD_PATH, [course.shortname, assignment.name]);
+                        let outputFile = joinPath(outputPath, [content.filename]);
 
                         fileNames.push('      ' + content.filename);
                         downloads.push({
                             url: downloadUrl,
-                            outputPath: path,
+                            outputPath: outputPath,
                             outputFile: outputFile,
                             file: content
                         });
