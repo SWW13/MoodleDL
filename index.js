@@ -5,7 +5,7 @@ const prompt = require('prompt');
 const mkdirp = require('mkdirp');
 const Promise = require('promise');
 const download = require('download');
-const filesize = require('filesize');
+const bytes = require('bytes');
 const moodle_client = require('moodle-client');
 const promiseConcurrency = require('promise-concurrency');
 
@@ -17,6 +17,7 @@ cli.parse({
     downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
     moodleUrl: ['u', 'Url of moodle instance', 'url', null],
     token: ['t', 'Moodle access token', 'string', false],
+    max_size: ['max', 'Maximal download size', 'string', false],
     saveConfig: ['s', 'Save moodle url and access token', 'bool', false],
     forceDownload: ['f', 'Force file download', 'bool', false]
 });
@@ -182,7 +183,7 @@ const courseContents = data => new Promise((resolve, reject) => {
                                 let path = DOWNLOAD_PATH + '/' + course.shortname + '/' + section.name + '/' + (['resource', 'url'].indexOf(module.modname) === -1 ? (module.name + '/') : '') + filePath;
                                 let outputFile = path + content.filename;
 
-                                fileNames.push('      ' + (filePath ? filePath : '') +  content.filename + ' (' + filesize(content.filesize) + ')');
+                                fileNames.push('      ' + (filePath ? filePath : '') +  content.filename + ' (' + bytes(content.filesize) + ')');
                                 downloads.push({
                                     url: downloadUrl,
                                     outputPath: path,
@@ -322,7 +323,7 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
 
             cli.debug(dl.outputFile +
                 '\n\ttimestamp:\tlocale = ' + mtimeTimestep + '\tmoodle = ' + (dl.file.timemodified ? dl.file.timemodified : 'unknown') +
-                '\n\tsize:\t\tlocale = ' + filesize(stats.size) + '\tmoodle = ' + (dl.file.filesize ? filesize(dl.file.filesize) : 'unknown') +
+                '\n\tsize:\t\tlocale = ' + bytes(stats.size) + '\tmoodle = ' + (dl.file.filesize ? bytes(dl.file.filesize) : 'unknown') +
                 (skipp ? '\n\t=> skipping' : '\n\t=> redownload'));
 
             if(skipp) {
@@ -331,6 +332,12 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
         }
 
         if(dl.file.filesize) {
+            if(dl.file.filesize > bytes(args.max_size)) {
+                cli.info(dl.outputFile + ' - skipped: ' + bytes(dl.file.filesize) + ' bigger than max downlaod size ' + bytes(bytes(args.max_size)));
+
+                return;
+            }
+
             downloadSizeTotal += dl.file.filesize;
         } else {
             switch (dl.type) {

@@ -10,9 +10,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "bytes": "^3.0.0",
     "cli": "^1.0.0",
     "download": "^5.0.2",
-    "filesize": "^3.3.0",
     "mkdirp": "^0.5.1",
     "moodle-client": "^0.4.0",
     "promise": "^7.1.1",
