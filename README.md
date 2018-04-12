@@ -13,16 +13,16 @@ npm install
 ## Usage
 ```
 Usage:
-  node index.js [OPTIONS]
+  index.js [OPTIONS] [ARGS]
 
-Options: 
-  -d, --downloadDir [PATH]  Download destination path (Default is downloads)
-  -u, --moodleUrl URL       Url of moodle instance
-  -t, --token STRING        Moodle access token
-  -s, --saveConfig          Save moodle url and access token
-  -f, --forceDownload       Force file download
-  -k, --no-color            Omit color from output
-      --debug               Show debug information
-  -h, --help                Display help and usage details
-
+Options:
+  -d, --downloadDir [PATH]Download destination path (Default is downloads)
+  -u, --moodleUrl URL    Url of moodle instance
+  -t, --token STRING     Moodle access token
+  -max, --max_size STRINGMaximal download size
+  -s, --saveConfig BOOL  Save moodle url and access token
+  -f, --forceDownload BOOLForce file download
+  -k, --no-color         Omit color from output
+      --debug            Show debug information
+  -h, --help             Display help and usage details
 ```
