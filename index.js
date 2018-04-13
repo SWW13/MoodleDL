@@ -2,10 +2,10 @@ const fs = require('fs');
 const cli = require('cli');
 const path = require('path');
 const util = require('util');
+const got = require('got');
 const prompt = require('prompt');
 const mkdirp = require('mkdirp');
 const Promise = require('promise');
-const download = require('download');
 const bytes = require('bytes');
 const sanitize = require("sanitize-filename");
 const moodle_client = require('moodle-client');
@@ -13,13 +13,14 @@ const promiseConcurrency = require('promise-concurrency');
 
 const CONFIG_FILE = 'config.json';
 const CONCURRENT_DOWNLOAD_LIMIT = 3;
+const DOWNLOAD_TIMEOUT = 30000;
 
 cli.enable('status');
 cli.parse({
     downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
     moodleUrl: ['u', 'Url of moodle instance', 'url', null],
     token: ['t', 'Moodle access token', 'string', false],
-    max_size: ['max', 'Maximal download size', 'string', false],
+    maxSize: ['m', 'Maximal download size', 'string', false],
     saveConfig: ['s', 'Save moodle url and access token', 'bool', false],
     forceDownload: ['f', 'Force file download', 'bool', false]
 });
@@ -195,7 +196,7 @@ const courseContents = data => new Promise((resolve, reject) => {
                                 let downloadUrl = content.fileurl + '&token=' + client.token;
                                 let filePath = (content.filepath || '/').substring(1);
                                 let outputPath = joinPath(DOWNLOAD_PATH, [course.shortname, section.name, (['resource', 'url'].indexOf(module.modname) === -1 ? (sanitize(module.name) + '/') : undefined), filePath]);
-                                let outputFile = joinPath(outputPath, [content.filename]);
+                                let outputFile = sanitize(content.filename);
 
                                 fileNames.push('      ' + (filePath ? filePath : '') +  content.filename + ' (' + bytes(content.filesize) + ')');
                                 downloads.push({
@@ -264,7 +265,7 @@ const forumDiscussionPosts = data => new Promise((resolve, reject) => {
                     post.attachments.map(attachment => {
                         let downloadUrl = attachment.fileurl + '?token=' + client.token;
                         let outputPath = joinPath(DOWNLOAD_PATH, [course.shortname, forum.name, discussion.name]);
-                        let outputFile = joinPath(outputPath, [attachment.filename]);
+                        let outputFile = sanitize(attachment.filename);
 
                         fileNames.push('      ' + attachment.filename);
                         downloads.push({
@@ -300,7 +301,7 @@ const courseAssignments = data => new Promise((resolve, reject) => {
                     assignment.introattachments.map(content => {
                         let downloadUrl = content.fileurl + '?token=' + client.token;
                         let outputPath = joinPath(DOWNLOAD_PATH, [course.shortname, assignment.name]);
-                        let outputFile = joinPath(outputPath, [content.filename]);
+                        let outputFile = sanitize(content.filename);
 
                         fileNames.push('      ' + content.filename);
                         downloads.push({
@@ -346,9 +347,8 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
         }
 
         if(dl.file.filesize) {
-            if(dl.file.filesize > bytes(args.max_size)) {
-                cli.info(dl.outputFile + ' - skipped: ' + bytes(dl.file.filesize) + ' bigger than max downlaod size ' + bytes(bytes(args.max_size)));
-
+            if(args.maxSize && dl.file.filesize > bytes(args.maxSize)) {
+                cli.info(dl.outputFile + ' - skipped: ' + bytes(dl.file.filesize) + ' bigger than max download size ' + bytes(bytes(args.maxSize)));
                 return;
             }
 
@@ -380,33 +380,57 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
 
         const donwloadPromises = fileDownloads.map(dl => {
             return () => new Promise((resolve, reject) => {
+                mkdirp.sync(dl.outputPath);
+                const output = joinPath(dl.outputPath, [dl.outputFile]);
                 const writeFile = data => {
-                    mkdirp.sync(dl.outputPath);
-                    fs.writeFileSync(dl.outputFile, data);
+                    fs.writeFileSync(output, data);
+                    cli.ok(dl.outputFile);
 
                     if(dl.file.filesize) {
                         if(data.length == dl.file.filesize) {
-                            cli.ok(dl.outputFile);
-
                             downloadSize += dl.file.filesize;
-                            cli.progress(downloadSize / downloadSizeTotal);
+                            ok(data.length);
+                            updateProgress();
                         } else {
                             cli.error(`{dl.outputFile}: size differ\n\t local: ${data.length}\t remote: ${dl.file.filesize}`);
                         }
-                    } else {
-                        cli.ok(dl.outputFile);
+                    }
+                };
+                const ok = (length) => {
+                    if(dl.file.filesize) {
+                        if(length == dl.file.filesize) {
+                            downloadSize += dl.file.filesize;
+                        } else {
+                            cli.error(`${dl.outputFile}: size differ\n\t local: ${data.length}\t remote: ${dl.file.filesize}`);
+                        }
                     }
 
+                    cli.ok(dl.outputFile);
                     resolve();
                 };
+                const updateProgress = () => cli.progress(downloadSize / downloadSizeTotal);
 
                 cli.debug(dl.url);
                 switch (dl.type) {
                     case 'url':
                         writeFile(`[InternetShortcut]\nURL=${dl.url}\n`);
+                        ok();
                         break;
                     default:
-                        download(dl.url).then(writeFile);
+                        let transferred = 0;
+                        got.stream(dl.url, { timeout: DOWNLOAD_TIMEOUT })
+                        .on('downloadProgress', progress => {
+                            downloadSize += progress.transferred - transferred;
+                            transferred = progress.transferred;
+                            updateProgress();
+                        })
+                        .on('error', (error) => {
+                            cli.error(`${error.statusCode} ${error.statusMessage} - ${error.method} ${error.url}`);
+                        })
+                        .pipe(fs.createWriteStream(output))
+                        .on('end', () => { ok(transferred); resolve('end') })
+                        .on('finish', () => { ok(transferred); resolve('finish') })
+                        .on('error', reject);
                         break;
                 }
             });
