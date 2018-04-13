@@ -405,7 +405,7 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
                         }
                     }
 
-                    cli.ok(dl.outputFile);
+                    cli.ok(output.substring(DOWNLOAD_PATH.length + 1));
                     resolve();
                 };
                 const updateProgress = () => cli.progress(downloadSize / downloadSizeTotal);
