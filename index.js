@@ -425,6 +425,7 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
                             updateProgress();
                         })
                         .on('error', (error) => {
+                            cli.debug(JSON.stringify(error));
                             cli.error(`${error.statusCode} ${error.statusMessage} - ${error.method} ${error.url}`);
                         })
                         .pipe(fs.createWriteStream(output))
