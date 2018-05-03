@@ -401,7 +401,7 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
                         if(length == dl.file.filesize) {
                             downloadSize += dl.file.filesize;
                         } else {
-                            cli.error(`${dl.outputFile}: size differ\n\t local: ${data.length}\t remote: ${dl.file.filesize}`);
+                            cli.error(`${dl.outputFile}: size differ\n\t local: ${length}\t remote: ${dl.file.filesize}`);
                         }
                     }
 
