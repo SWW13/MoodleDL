@@ -20,12 +20,16 @@ cli.parse({
     downloadDir: ['d', 'Download destination path', 'path', 'downloads'],
     moodleUrl: ['u', 'Url of moodle instance', 'url', null],
     token: ['t', 'Moodle access token', 'string', false],
+    exclude: ['e', 'Exclude filenames', 'string', null],
+    excludePath: ['x', 'Exclude paths', 'string', null],
     maxSize: ['m', 'Maximal download size', 'string', false],
     saveConfig: ['s', 'Save moodle url and access token', 'bool', false],
     forceDownload: ['f', 'Force file download', 'bool', false]
 });
 const args = cli.options;
 const DOWNLOAD_PATH = args.downloadDir;
+const exclude_regex = args.exclude != null ? RegExp(args.exclude) : null;
+const exclude_path_regex = args.excludePath != null ? RegExp(args.excludePath) : null;
 cli.debug(JSON.stringify(args));
 
 const joinPath = (base, dirs) => {
@@ -344,6 +348,15 @@ const downloadFiles = downloads => new Promise((resolve, reject) => {
             if(skipp) {
                 return;
             }
+        }
+
+        if(exclude_regex != null && exclude_regex.test(dl.outputFile)) {
+            cli.info(dl.outputFile + ' - skipped: matched exclude regex ' + exclude_regex);
+            return;
+        }
+        if(exclude_path_regex != null && exclude_path_regex.test(dl.outputPath)) {
+            cli.info(dl.outputFile + ' - skipped: path ' + dl.outputPath + ' matched exclude path regex ' + exclude_path_regex);
+            return;
         }
 
         if(dl.file.filesize) {
